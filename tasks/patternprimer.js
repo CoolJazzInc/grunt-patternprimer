@@ -60,7 +60,7 @@ module.exports = function(grunt) {
     }
 
     // modify the sourcefile css according to the settings
-    var css = settings.css.map(function (file) {   
+    var css = settings.css.map(function (file) {
       if (settings.snapshot && file.search('http://') !== -1) {
         return '<link rel="stylesheet" type="text/css" href="' + path.basename(file) + '"/>';
       } else {
@@ -77,13 +77,21 @@ module.exports = function(grunt) {
   var outputPatterns = function (patternFolder, patterns, cb) {
     getSourceFile(function generatePatterns(content) {
       patterns.forEach(function (file) {
-        content += '<hr/>';
         content += '<div class="pattern"><div class="display">';
+        if (file.options.title) {
+          content += '<h3 class="pattern-title">' + file.options.title + '</h3>';
+        }
         content += file.content;
-        content += '</div><div class="source"><textarea rows="6" cols="30">';
-        content += simpleEscaper(file.content);
-        content += '</textarea>';
-        content += '<p><a href="/'+ patternFolder + '/' + file.filename +'">' + file.filename + '</a></p>';
+        content += '</div><div class="source">';
+        if (file.options.show_source !== 'false') {
+          content += '<pre class="prettyprint">';
+          content += simpleEscaper(file.content.trim());
+          content += '</pre>';
+        }
+        if (file.options.show_link !== 'false') {
+          var fileName = file.filename.match(/\/?([^\/]*)$/)[1]
+          content += '<p><a href="/'+ file.filename +'">' + fileName + '</a></p>'
+        }
         content += '</div></div>';
       });
       content += '</body></html>';
@@ -92,12 +100,30 @@ module.exports = function(grunt) {
   };
 
   // walks through the pattern folder
-  // reads all the contents of the pattern files 
+  // reads all the contents of the pattern files
   var handleFiles = function (patternFolder, files, cb) {
     var file, patterns = [];
     files.forEach(function readPattern(pattern) {
       file = {filename: pattern};
-      file.content = grunt.file.read(patternFolder + '/' + file.filename);
+      file.content = grunt.file.read(/*patternFolder + '/' + */file.filename);
+
+      var options = {},
+          optionStr = file.content.match(/^\s*<!--\s*([^>]*)\s*-->/);
+
+      if (optionStr && optionStr[1]) {
+        file.content = file.content.replace(/^\s*<!--\s*([^>]*)\s*-->/, '');
+        var pairs = optionStr[1].split(/\s+/);
+
+        pairs.forEach(function(pair) {
+          var keyval = pair.split('=');
+          if (keyval[0]) {
+            options[keyval[0]] = keyval[1];
+          }
+        });
+      }
+
+      file.options = options;
+
       patterns.push(file);
     });
 
@@ -111,10 +137,37 @@ module.exports = function(grunt) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   };
 
+
+  var walk = function(dir, done) {
+    var results = [];
+    fs.readdir(dir, function(err, list) {
+      if (err) return done(err);
+      var i = 0;
+      (function next() {
+        var file = list[i++];
+        if (!file) return done(null, results);
+        file = dir + '/' + file;
+        fs.stat(file, function(err, stat) {
+          if (stat && stat.isDirectory()) {
+            walk(file, function(err, res) {
+              results = results.concat(res);
+              next();
+            });
+          } else {
+            results.push(file);
+            next();
+          }
+        });
+      })();
+    });
+  };
+
+
   // reads all the patterns from the folder
   var readPatterns = function (patternFolder, cb) {
     // read pattern folder
-    fs.readdir(patternFolder, function (err, contents) {
+    //fs.readdir(patternFolder, function (err, contents) {
+    walk(patternFolder, function (err, contents) {
       // check for errors
       if (err !== null && err.code === 'ENOENT') {
         grunt.log.error('Cannot find patterns folder:', patternFolder);
@@ -169,7 +222,7 @@ module.exports = function(grunt) {
       };
 
     } else {
-     var patternFolder = './' + settings.src;
+      var patternFolder = './' + settings.src;
 
       // our main function that starts the process
       primer = function (cb) {
@@ -177,7 +230,7 @@ module.exports = function(grunt) {
       };
     }
 
-   
+
 
     // middleware to spit out 404 (in case a non existing ressource is request)
     // or to process the `non static` requests
@@ -199,8 +252,8 @@ module.exports = function(grunt) {
 
     // initialize the server with static routes & dynamic template middleware
     var liveServer = connect.createServer(
-      connect.static(process.cwd() + '/' + settings.wwwroot),
-      middleware
+        connect.static(process.cwd() + '/' + settings.wwwroot),
+        middleware
     );
 
     // initialize the static server pointing to your snapshots
@@ -220,7 +273,7 @@ module.exports = function(grunt) {
       });
     };
 
-    // writes the task output to a file 
+    // writes the task output to a file
     var writeSnapshot = function () {
       primer(function (content) {
         var promises = [];
@@ -242,7 +295,7 @@ module.exports = function(grunt) {
                 deferred.resolve();
               });
             })
-            .on('err', deferred.reject);
+                .on('err', deferred.reject);
           } else {
             grunt.file.copy('./' + settings.wwwroot + '/' + file, './' + settings.dest + '/' + file);
             deferred.resolve();
